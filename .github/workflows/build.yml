@@ -1,0 +1,87 @@
+name: OnePlus Nord N10 Kernel Build
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Bağımlılıkları Yükle
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler python2 python3
+
+    - name: Proton Clang İndir (En İyi Derleyici)
+      run: |
+        git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+
+    - name: Kernel Kaynak Kodunu İndir
+      run: |
+        git clone --depth=1 https://github.com/OnePlusOSS/android_kernel_oneplus_sm6350 -b oneplus/SM6350_R_11.0 kernel
+
+    - name: 🔥 NETHUNTER YAMASI VE AYARLAR 🔥
+      run: |
+        cd kernel
+        
+        # 1. Monitor Mode Yamasını İndir
+        wget https://raw.githubusercontent.com/kimocoder/qualcomm_android_monitor_mode/master/patches/4.19/0002-mac80211.patch
+        
+        # 2. Yamayı Uygula
+        patch -p1 < 0002-mac80211.patch
+        
+        # 3. Monitor Mode Kodunu core.c içine göm (Otomatik)
+        sed -i '/rdev->wiphy.registered = true;/i rdev->wiphy.interface_modes |= BIT(NL80211_IFTYPE_MONITOR);' net/wireless/core.c
+        
+        # 4. Config Dosyasına Sürücüleri Ekle
+        # Config dosyasının yerini bulduk: vendor/lito-perf_defconfig
+        CONFIG_PATH=arch/arm64/configs/vendor/lito-perf_defconfig
+        
+        echo "" >> $CONFIG_PATH
+        echo "CONFIG_CFG80211=y" >> $CONFIG_PATH
+        echo "CONFIG_MAC80211=y" >> $CONFIG_PATH
+        echo "CONFIG_ATH9K_HTC=y" >> $CONFIG_PATH
+        echo "CONFIG_USB_HID=y" >> $CONFIG_PATH
+        # OpenSSL hatasını engellemek için imzalama kapalı
+        echo "CONFIG_MODULE_SIG=n" >> $CONFIG_PATH
+
+    - name: Derlemeyi Başlat
+      run: |
+        cd kernel
+        export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
+        export ARCH=arm64
+        export SUBARCH=arm64
+        
+        # Temizlik
+        make O=out clean
+        make O=out mrproper
+        
+        # Config Yükle
+        make O=out CC=clang vendor/lito-perf_defconfig
+        
+        # Derle (Assembler hatasını önleyen komutlar)
+        make O=out CC=clang \
+        AS=clang \
+        LD=ld.lld \
+        AR=llvm-ar \
+        NM=llvm-nm \
+        OBJCOPY=llvm-objcopy \
+        OBJDUMP=llvm-objdump \
+        STRIP=llvm-strip \
+        CROSS_COMPILE=aarch64-linux-gnu- \
+        CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+        CLANG_TRIPLE=aarch64-linux-gnu- \
+        LLVM_IAS=1 \
+        -j$(nproc)
+
+    - name: AnyKernel3 Hazırla (Flashlanabilir ZIP)
+      run: |
+        git clone https://github.com/kdrag0n/AnyKernel3.git
+        cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/
+        # Dtbo imajını da bulabilirsek ekleyelim (Opsiyonel)
+        find kernel/out/arch/arm64/boot/dts -name "*.dtbo" -exec cp {} AnyKernel3/dtbo.img \; || true
+
+    - name: Sonucu Yükle (Artifacts)
+      uses: actions/upload-artifact@v4
+      with:
+        name: NetHunter-Kernel-N10
+        path: AnyKernel3/*
